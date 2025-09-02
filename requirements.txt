@@ -5,7 +5,7 @@ rasterio
 geopandas
 fiona
 shapely
-GDAL
+GDAL==3.6.2
 richdem
 whitebox
 scikit-learn
