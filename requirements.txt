@@ -8,7 +8,7 @@ shapely
 GDAL==3.6.2
 richdem
 whitebox
-sklearn
+scikit-learn
 xgboost
 torch
 torchvision
