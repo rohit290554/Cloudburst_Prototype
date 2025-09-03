@@ -9,6 +9,7 @@ import joblib
 from io import BytesIO
 import plotly.express as px
 import plotly.graph_objects as go
+import io
 
 st.set_page_config(page_title="Cloudburst Prediction", layout="wide")
 st.title("🌩 Cloudburst Prediction Web App")
@@ -20,6 +21,11 @@ era5_instant = st.sidebar.file_uploader("ERA5 Instantaneous (.nc)", type=["nc"])
 era5_accum = st.sidebar.file_uploader("ERA5 Accumulated (.nc)", type=["nc"])
 dem_file = st.sidebar.file_uploader("DEM File (.tif)", type=["tif"])
 model_file = st.sidebar.file_uploader("Trained Model (.pkl)", type=["pkl"])
+
+# Sidebar threshold adjustment
+threshold = st.sidebar.slider(
+    "🌧 Cloudburst Threshold (mm/hr)", min_value=10, max_value=100, value=50, step=5
+)
 
 if imerg_file and era5_instant and era5_accum and dem_file:
     st.success("✅ Files uploaded successfully!")
@@ -34,7 +40,8 @@ if imerg_file and era5_instant and era5_accum and dem_file:
         logs = []
 
         # --- IMERG ---
-        ds_imerg = xr.open_dataset(imerg_file)
+        ds_imerg = xr.open_dataset(io.BytesIO(imerg_file.read()))
+        imerg_file.seek(0)
         logs.append("=== IMERG Dataset Info ===")
         logs.append(str(ds_imerg))
 
@@ -42,13 +49,17 @@ if imerg_file and era5_instant and era5_accum and dem_file:
             rain = ds_imerg["precipitationCal"].resample(time="1h").mean()
         else:
             rain = ds_imerg["precipitation"].resample(time="1h").mean()
+
         imerg_df = rain.to_dataframe().reset_index()
-        imerg_df["cloudburst"] = (imerg_df.iloc[:, -1] >= 50).astype(int)
+        imerg_df["cloudburst"] = (imerg_df.iloc[:, -1] >= threshold).astype(int)
         logs.append(f"IMERG DataFrame shape: {imerg_df.shape}")
+        logs.append(f"Cloudburst threshold used: {threshold} mm/hr")
 
         # --- ERA5 ---
-        ds_instant = xr.open_dataset(era5_instant)
-        ds_accum = xr.open_dataset(era5_accum)
+        ds_instant = xr.open_dataset(io.BytesIO(era5_instant.read()))
+        era5_instant.seek(0)
+        ds_accum = xr.open_dataset(io.BytesIO(era5_accum.read()))
+        era5_accum.seek(0)
         era5 = xr.merge([ds_instant, ds_accum])
         logs.append("=== ERA5 Dataset Variables ===")
         logs.append(str(list(era5.data_vars)))
@@ -60,9 +71,13 @@ if imerg_file and era5_instant and era5_accum and dem_file:
         logs.append(f"ERA5 DataFrame shape: {era5_df.shape}")
 
         # --- DEM ---
-        with rasterio.open(dem_file) as dem_src:
+        with rasterio.open(io.BytesIO(dem_file.read())) as dem_src:
             dem = dem_src.read(1)
+            dem_extent = (dem_src.bounds.left, dem_src.bounds.right,
+                          dem_src.bounds.bottom, dem_src.bounds.top)
             logs.append(f"DEM shape: {dem.shape}, Resolution: {dem_src.res}")
+
+        dem_file.seek(0)
         dem_rd = rd.LoadGDAL(dem_file)
         slope = rd.TerrainAttribute(dem_rd, attrib="slope_degrees")
 
@@ -163,15 +178,15 @@ if imerg_file and era5_instant and era5_accum and dem_file:
             fig.add_trace(
                 go.Scatter(
                     x=merged["time"],
-                    y=[50] * len(merged),
+                    y=[threshold] * len(merged),
                     mode="lines",
                     line=dict(color="red", dash="dash"),
-                    name="Cloudburst threshold (50 mm/hr)"
+                    name=f"Threshold ({threshold} mm/hr)"
                 )
             )
             fig.update_traces(marker=dict(size=9, line=dict(width=1, color="DarkSlateGrey")))
             fig.update_layout(
-                title="Actual vs Predicted Cloudburst Events with Threshold",
+                title=f"Actual vs Predicted Cloudburst Events (Threshold = {threshold} mm/hr)",
                 xaxis_title="Time",
                 yaxis_title="Rainfall (tp mm/hr)",
                 hovermode="closest"
