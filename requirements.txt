@@ -6,7 +6,7 @@ shapely
 pyproj
 rasterio
 geopandas
-GDAL
+GDAL==3.6.2
 richdem
 whitebox
 scipy
