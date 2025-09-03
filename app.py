@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import xarray as xr
 import rasterio
-import richdem as rd
 import matplotlib.pyplot as plt
 import numpy as np
 import joblib
@@ -54,6 +53,7 @@ if imerg_file and era5_instant and era5_accum and dem_file:
 
         imerg_df = rain.to_dataframe().reset_index()
         imerg_df["cloudburst"] = (imerg_df.iloc[:, -1] >= threshold).astype(int)
+        imerg_df["time"] = pd.to_datetime(imerg_df["time"])
         logs.append(f"IMERG DataFrame shape: {imerg_df.shape}")
         logs.append(f"Cloudburst threshold used: {threshold} mm/hr")
 
@@ -72,7 +72,7 @@ if imerg_file and era5_instant and era5_accum and dem_file:
         era5_df["time"] = pd.to_datetime(era5_df["time"].astype(str))
         logs.append(f"ERA5 DataFrame shape: {era5_df.shape}")
 
-        # --- DEM (saved to temporary file for RichDEM) ---
+        # --- DEM (saved to temporary file) ---
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tif") as tmp_dem:
             tmp_dem.write(dem_file.read())
             tmp_dem_path = tmp_dem.name
@@ -82,10 +82,12 @@ if imerg_file and era5_instant and era5_accum and dem_file:
             dem = dem_src.read(1)
             dem_extent = (dem_src.bounds.left, dem_src.bounds.right,
                           dem_src.bounds.bottom, dem_src.bounds.top)
+            res = dem_src.res
             logs.append(f"DEM shape: {dem.shape}, Resolution: {dem_src.res}")
 
-        dem_rd = rd.LoadGDAL(tmp_dem_path)
-        slope = rd.TerrainAttribute(dem_rd, attrib="slope_degrees")
+        # Compute slope using NumPy
+        dy, dx = np.gradient(dem, res[1], res[0])
+        slope = np.degrees(np.arctan(np.sqrt(dx**2 + dy**2)))
 
         # --- Merge ---
         merged = pd.merge(era5_df, imerg_df, on="time", how="inner")
@@ -139,7 +141,6 @@ if imerg_file and era5_instant and era5_accum and dem_file:
             model = joblib.load(model_file)
             st.subheader("⚡ Cloudburst Prediction")
 
-            # Features for single snapshot prediction
             features = {
                 "rain_mean": float(rain.mean().values),
                 "rain_max": float(rain.max().values),
@@ -160,11 +161,9 @@ if imerg_file and era5_instant and era5_accum and dem_file:
 
             st.json(features)
 
-            # Predict for full dataset
             X_all = merged[["t2m", "d2m", "tp", "cape", "sp", "elevation", "slope"]].fillna(0)
             merged["cloudburst_pred"] = model.predict(X_all)
 
-            # Add combined status
             def combined_status(row):
                 if row["cloudburst"] == 1 and row["cloudburst_pred"] == 1:
                     return "True Positive"
@@ -177,7 +176,6 @@ if imerg_file and era5_instant and era5_accum and dem_file:
 
             merged["status"] = merged.apply(combined_status, axis=1)
 
-            # Interactive scatter plot
             st.subheader("📈 Actual vs Predicted Cloudburst Events")
             fig = px.scatter(
                 merged,
