@@ -1,13 +1,17 @@
 numpy
 pandas
 xarray
-rasterio
-geopandas
 fiona
 shapely
-GDAL==3.6.2
+pyproj
+rasterio
+geopandas
+GDAL
 richdem
 whitebox
+scipy
+joblib
+threadpoolctl
 scikit-learn
 xgboost
 torch
@@ -16,4 +20,3 @@ tensorflow
 matplotlib
 plotly
 streamlit
-joblib
