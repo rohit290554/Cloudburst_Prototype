@@ -10,6 +10,8 @@ from io import BytesIO
 import plotly.express as px
 import plotly.graph_objects as go
 import io
+import tempfile
+import os
 
 st.set_page_config(page_title="Cloudburst Prediction", layout="wide")
 st.title("🌩 Cloudburst Prediction Web App")
@@ -70,15 +72,19 @@ if imerg_file and era5_instant and era5_accum and dem_file:
         era5_df["time"] = pd.to_datetime(era5_df["time"].astype(str))
         logs.append(f"ERA5 DataFrame shape: {era5_df.shape}")
 
-        # --- DEM ---
-        with rasterio.open(io.BytesIO(dem_file.read())) as dem_src:
+        # --- DEM (saved to temporary file for RichDEM) ---
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tif") as tmp_dem:
+            tmp_dem.write(dem_file.read())
+            tmp_dem_path = tmp_dem.name
+        dem_file.seek(0)
+
+        with rasterio.open(tmp_dem_path) as dem_src:
             dem = dem_src.read(1)
             dem_extent = (dem_src.bounds.left, dem_src.bounds.right,
                           dem_src.bounds.bottom, dem_src.bounds.top)
             logs.append(f"DEM shape: {dem.shape}, Resolution: {dem_src.res}")
 
-        dem_file.seek(0)
-        dem_rd = rd.LoadGDAL(dem_file)
+        dem_rd = rd.LoadGDAL(tmp_dem_path)
         slope = rd.TerrainAttribute(dem_rd, attrib="slope_degrees")
 
         # --- Merge ---
@@ -90,6 +96,12 @@ if imerg_file and era5_instant and era5_accum and dem_file:
         # Show all logs
         st.subheader("📝 Calculation Logs")
         st.code("\n".join(logs))
+
+        # Clean up temp DEM file
+        try:
+            os.remove(tmp_dem_path)
+        except:
+            pass
 
     # ---------- PREVIEWS ----------
     with tab2:
@@ -195,4 +207,4 @@ if imerg_file and era5_instant and era5_accum and dem_file:
 
 # Footer
 st.markdown("---")
-st.markdown("👨‍💻 Developed by **git@rohit290554**")
+st.markdown("👨‍💻 Developed by *git@rohit290554*")
